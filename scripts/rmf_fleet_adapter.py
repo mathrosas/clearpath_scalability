@@ -14,6 +14,7 @@ Navigation execution is supported through the Nav2 action interface.
 """
 
 import argparse
+import json
 import tempfile
 
 from pathlib import Path
@@ -158,8 +159,24 @@ class RMFFleetBridge:
                 "Unable to create Open-RMF fleet"
             )
 
+        # Passive access to Open-RMF fleet and task updates.
+        #
+        # This listener does not publish commands,
+        # change task assignments, or control robots.
+
+        self._rmf_update_preview_count = 0
+
+        self.fleet_handle.more().set_update_listener(
+            self._on_rmf_update
+        )
+
         print(
             f"[RMF] Fleet created: {configuration.fleet_name}",
+            flush=True,
+        )
+
+        print(
+            "[RMF] Passive task update listener registered",
             flush=True,
         )
 
@@ -180,6 +197,82 @@ class RMFFleetBridge:
 
             print(
                 f"[RMF] Nav2 interface ready: {robot_name}",
+                flush=True,
+            )
+
+    def _on_rmf_update(self, update):
+        """Passively inspect Open-RMF task and fleet updates."""
+
+        try:
+
+            if isinstance(update, str):
+                payload = json.loads(update)
+            else:
+                payload = update
+
+            if not isinstance(payload, dict):
+                print(
+                    "[RMF_UPDATE_WARNING] "
+                    f"Unexpected payload type: {type(payload)}",
+                    flush=True,
+                )
+                return
+
+            event_type = str(
+                payload.get("type", "")
+            )
+
+            serialized = json.dumps(
+                payload,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                default=str,
+            )
+
+            # Record every task-related update.
+            # Do not continuously log fleet-state updates.
+
+            task_related = (
+                "task" in event_type.lower()
+                or any(
+                    key in payload
+                    for key in (
+                        "task_id",
+                        "tasks",
+                        "booking",
+                    )
+                )
+            )
+
+            if task_related:
+
+                print(
+                    "[RMF_TASK_UPDATE] "
+                    + serialized,
+                    flush=True,
+                )
+
+            elif self._rmf_update_preview_count < 5:
+
+                # Capture a few initial examples so
+                # we can verify the callback payload schema.
+
+                self._rmf_update_preview_count += 1
+
+                print(
+                    "[RMF_UPDATE_PREVIEW] "
+                    + serialized[:10000],
+                    flush=True,
+                )
+
+        except Exception as error:
+
+            # An observation failure must never
+            # interrupt robot navigation.
+
+            print(
+                "[RMF_UPDATE_ERROR] "
+                f"{type(error).__name__}: {error}",
                 flush=True,
             )
 

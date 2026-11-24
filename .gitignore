@@ -37,3 +37,7 @@ gui.local.yaml
 # Python-generated files
 __pycache__/
 *.py[cod]
+
+# Local experimental datasets
+/results/raw/
+/results/rmf_crossing_*/
